@@ -18,7 +18,7 @@ pub async fn get_all(State(pool): State<PgPool>) -> Result<Json<Vec<Score>>, Sta
 
 pub async fn get_top_ten(State(pool):State<PgPool>) -> Result<Json<Vec<Score>>, StatusCode>
 {
-     let scores = sqlx::query_as::<_,Score>("SELECT * FROM scores ORDER BY id DESC LIMIT 10")
+     let scores = sqlx::query_as::<_,Score>("SELECT * FROM scores ORDER BY scores DESC LIMIT 10")
     .fetch_all(&pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
