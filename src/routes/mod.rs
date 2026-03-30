@@ -2,10 +2,11 @@ use axum::{
     routing::{get,post}, 
     Router
 };
-use sqlx::PgPool;
+
+use crate::AppState;
 mod scores;
 
-pub fn scores_router() -> Router<PgPool>{
+pub fn scores_router() -> Router<AppState>{
     Router::new()
         .route("/", get(scores::get_all))
         .route("/topten",get(scores::get_top_ten))

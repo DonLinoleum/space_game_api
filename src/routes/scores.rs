@@ -1,36 +1,38 @@
-use axum::{
-    extract::{Path, State},
-    http::{HeaderMap, StatusCode},
-    Json
-};
-use sqlx::PgPool;
-use crate::models::{CreateScore, Score};
+use std::net::SocketAddr;
 
-pub async fn get_all(State(pool): State<PgPool>) -> Result<Json<Vec<Score>>, StatusCode>
+use axum::{
+    Json, extract::{ConnectInfo, Path, State}, http::{HeaderMap, StatusCode}
+};
+use chrono::Utc;
+use serde_json::json;
+use lapin::{BasicProperties, options::BasicPublishOptions};
+use crate::{AppState, models::{CreateScore, Score}};
+
+pub async fn get_all(State(state): State<AppState>) -> Result<Json<Vec<Score>>, StatusCode>
 {
     let scores = sqlx::query_as::<_,Score>("SELECT * FROM scores ORDER BY id DESC LIMIT 100")
-    .fetch_all(&pool)
+    .fetch_all(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(scores))
 }
 
-pub async fn get_top_ten(State(pool):State<PgPool>) -> Result<Json<Vec<Score>>, StatusCode>
+pub async fn get_top_ten(State(state):State<AppState>) -> Result<Json<Vec<Score>>, StatusCode>
 {
      let scores = sqlx::query_as::<_,Score>("SELECT * FROM scores ORDER BY scores DESC LIMIT 10")
-    .fetch_all(&pool)
+    .fetch_all(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(scores))
 }
 
-pub async fn get_by_id(State(pool): State<PgPool>, Path(id): Path<i32>) -> Result<Json<Score>, StatusCode>
+pub async fn get_by_id(State(state): State<AppState>, Path(id): Path<i32>) -> Result<Json<Score>, StatusCode>
 {
     let score = sqlx::query_as::<_,Score>("SELECT * FROM scores WHERE id = $1")
         .bind(id)
-        .fetch_optional(&pool)
+        .fetch_optional(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     match score{
@@ -39,7 +41,11 @@ pub async fn get_by_id(State(pool): State<PgPool>, Path(id): Path<i32>) -> Resul
     }
 }
 
-pub async fn add_score(State(pool):State<PgPool>, headers:HeaderMap, Json(data): Json<CreateScore>) -> Result<Json<Score>, StatusCode>
+pub async fn add_score(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>, 
+    State(state):State<AppState>, 
+    headers:HeaderMap, 
+    Json(data): Json<CreateScore>) -> Result<Json<Score>, StatusCode>
 {
     if !headers.contains_key("Space-Game"){
         return Err(StatusCode::BAD_REQUEST);
@@ -49,9 +55,25 @@ pub async fn add_score(State(pool):State<PgPool>, headers:HeaderMap, Json(data):
         .bind(data.name)
         .bind(data.level)
         .bind(data.scores)
-        .fetch_one(&pool)
+        .fetch_one(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let payload = json!({
+        "ip": addr.ip().to_string(),
+        "date": Utc::now().to_rfc3339(),
+        "score": score.scores,
+        "level": score.level,
+        "name": score.name
+    });
+
+   let _ = state.mq_channel.basic_publish(
+    "".into(), 
+    "score_logs".into(), 
+    BasicPublishOptions::default(),
+     payload.to_string().as_bytes(), 
+     BasicProperties::default())
+        .await.expect("Failed to publish message");
 
     Ok(Json(score))
 }
