@@ -58,9 +58,14 @@ pub async fn add_score(
         .fetch_one(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    let ip = headers.get("X-Real-IP")
+        .map(|v| v.to_str().unwrap_or("unknown"))
+        .unwrap_or("unknown")
+        .to_string();
 
     let payload = json!({
-        "ip": addr.ip().to_string(),
+        "ip": ip,
         "date": Utc::now().to_rfc3339(),
         "score": score.scores,
         "level": score.level,
@@ -73,7 +78,8 @@ pub async fn add_score(
     BasicPublishOptions::default(),
      payload.to_string().as_bytes(), 
      BasicProperties::default())
-        .await.expect("Failed to publish message");
+        .await
+        .map_err(|e| eprintln!("Error in queue: {}",e));
 
     Ok(Json(score))
 }
