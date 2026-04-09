@@ -9,12 +9,10 @@ pub async fn create_channel(amqp_url: &str) -> Channel
         .await
         .expect("Failed to create channel");
 
-    let mut args = FieldTable::default();  
-    args.insert("x-queue-type".into(), AMQPValue::LongString("quorum".into()));  
     channel.queue_declare(
      "score_logs".into(), 
     QueueDeclareOptions{durable: true, ..QueueDeclareOptions::default()}, 
-    args)
+    FieldTable::default())
         .await
         .expect("Failed to declare queue");
 
